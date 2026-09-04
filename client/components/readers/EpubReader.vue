@@ -796,7 +796,7 @@ export default {
         })
       }
     },
-    async initEpub() {
+    async initEpub(forceNetworkSource = false) {
       /** @type {EpubReader} */
       const reader = this
 
@@ -812,25 +812,37 @@ export default {
         }
       }
 
-      try {
-        await this.refreshOfflineRecord()
-      } catch (error) {
-        console.error('Failed to check offline ebook storage', error)
+      if (!forceNetworkSource) {
+        try {
+          await this.refreshOfflineRecord()
+        } catch (error) {
+          console.error('Failed to check offline ebook storage', error)
+        }
       }
 
-      if (this.libraryItem?._offline && !this.offlineRecord) {
+      if (this.libraryItem?._offline && !this.offlineRecord && !forceNetworkSource) {
         this.$toast.error('This offline book is no longer available on this device')
         return
       }
 
-      const bookSource = this.offlineRecord?.ebookData || reader.ebookUrl
-      this.usingOfflineBook = !!this.offlineRecord
+      let cachedEbookData = forceNetworkSource ? null : this.offlineRecord?.ebookData
+      if (cachedEbookData instanceof Blob) cachedEbookData = await cachedEbookData.arrayBuffer()
+      if (ArrayBuffer.isView(cachedEbookData)) {
+        cachedEbookData = cachedEbookData.buffer.slice(cachedEbookData.byteOffset, cachedEbookData.byteOffset + cachedEbookData.byteLength)
+      }
+
+      const bookSource = cachedEbookData || reader.ebookUrl
+      this.usingOfflineBook = !!cachedEbookData
       const bookOptions = {
         width: this.readerWidth,
-        height: this.readerHeight - 50,
-        openAs: 'epub'
+        height: this.readerHeight - 50
       }
-      if (!this.offlineRecord) bookOptions.requestMethod = customRequest
+      // epub.js must auto-detect an ArrayBuffer as binary. Forcing `openAs: epub`
+      // makes it treat the cached bytes as a URL and leaves the reader blank.
+      if (!cachedEbookData) {
+        bookOptions.openAs = 'epub'
+        bookOptions.requestMethod = customRequest
+      }
 
       /** @type {ePub.Book} */
       reader.book = new ePub(bookSource, bookOptions)
@@ -903,6 +915,14 @@ export default {
         })
         .catch((error) => {
           console.error('EpubReader.initEpub failed:', error)
+          if (this.usingOfflineBook && navigator.onLine && this.$store.state.user.user?.id) {
+            console.warn('Cached EPUB could not be opened; retrying from the server')
+            reader.rendition?.destroy()
+            reader.book?.destroy()
+            this.initEpub(true)
+            return
+          }
+          this.$toast.error('Failed to open EPUB')
         })
     },
     getChapters() {
