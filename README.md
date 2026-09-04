@@ -6,13 +6,13 @@
 
 <p align="center">
   A private, self-hosted EPUB library and reader built for the web.<br>
-  Read on desktop, iPhone, or iPad with highlights, notes, bookmarks, and progress kept in sync.
+  Read in any modern browser with highlights, notes, bookmarks, and progress kept in sync.
 </p>
 
 <p align="center">
   <img alt="Docker ready" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
   <img alt="Raspberry Pi ARM64" src="https://img.shields.io/badge/Raspberry_Pi-ARM64-C51A4A?logo=raspberrypi&logoColor=white">
-  <img alt="Progressive Web App" src="https://img.shields.io/badge/PWA-iPhone_%7C_iPad_%7C_Desktop-5A0FC8?logo=pwa&logoColor=white">
+  <img alt="Cross-platform web app" src="https://img.shields.io/badge/Web_App-Android_%7C_iOS_%7C_Desktop-5A0FC8?logo=pwa&logoColor=white">
   <img alt="GPL 3 license" src="https://img.shields.io/badge/license-GPL--3.0-blue">
 </p>
 
@@ -29,7 +29,7 @@ Book Shelf is an EPUB-focused fork of [Audiobookshelf](https://github.com/advply
 | Synced highlights in four colours | Clean shelves with portrait covers |
 | Notes and bookmarks stored on the server | Continue-reading and series shelves |
 | Reliable highlight positions across devices | Author, collection, and statistics views |
-| iPhone and iPad selection workflow | Responsive desktop, tablet, and mobile layouts |
+| Touch-friendly text selection workflow | Responsive desktop, tablet, and mobile layouts |
 | Fast Sans, Fast Serif, and Fast Mono | `Book Shelf` branding and an EPUB-first sidebar |
 | Reader-only AMOLED, dark, sepia, and light themes | Persistent data in simple bind-mounted folders |
 
@@ -43,16 +43,16 @@ AMOLED mode uses a true-black reading canvas, while Fast Fonts emphasize the ope
 
 ## Mobile
 
-The same server works as an installable web app on iPhone and iPad. Highlights, notes, bookmarks, and reading position follow the signed-in user between mobile and desktop.
+The responsive web app runs anywhere a modern browser does: Android and iOS/iPadOS phones and tablets, plus Windows, macOS, and Linux desktops. Install it as a PWA where the browser supports installation, or simply use it in a browser. Highlights, notes, bookmarks, and reading position follow the signed-in user across devices.
 
 <p align="center">
-  <img src="screenshots/mobile-home-library.png" alt="Mobile home library" width="23%">
+  <img src="screenshots/mobile-home-library.jpg" alt="Mobile home library" width="23%">
   &nbsp;
-  <img src="screenshots/mobile-author-details.png" alt="Mobile author details" width="23%">
+  <img src="screenshots/mobile-author-details.jpg" alt="Mobile author details" width="23%">
   &nbsp;
-  <img src="screenshots/mobile-book-details.png" alt="Mobile book details" width="23%">
+  <img src="screenshots/mobile-book-details.jpg" alt="Mobile book details" width="23%">
   &nbsp;
-  <img src="screenshots/mobile-amoled-reader-highlight.png" alt="Mobile AMOLED reader with a saved highlight" width="23%">
+  <img src="screenshots/mobile-amoled-reader-highlight.jpg" alt="Mobile AMOLED reader with a saved highlight" width="23%">
 </p>
 
 ## Library views
