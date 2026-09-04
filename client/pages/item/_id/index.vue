@@ -80,7 +80,7 @@
           </div>
 
           <!-- Icon buttons -->
-          <div class="flex items-center justify-center md:justify-start pt-4">
+          <div class="flex flex-wrap items-center justify-center md:justify-start pt-4">
             <ui-btn v-if="showPlayButton" :disabled="isStreaming" color="bg-success" :padding-x="4" small class="flex items-center h-9 mr-2" @click="playItem">
               <span v-show="!isStreaming" class="material-symbols fill text-2xl -ml-2 pr-1 text-white">&#xe037;</span>
               {{ isStreaming ? $strings.ButtonPlaying : $strings.ButtonPlay }}
@@ -94,6 +94,11 @@
             <ui-btn v-if="showReadButton" color="bg-info" :padding-x="4" small class="flex items-center h-9 mr-2" @click="openEbook">
               <span class="material-symbols text-2xl -ml-2 pr-2 text-white" aria-hidden="true">auto_stories</span>
               {{ $strings.ButtonRead }}
+            </ui-btn>
+
+            <ui-btn v-if="canSaveEpubOffline" :disabled="offlineBookSaving" :color="offlineBookCached ? 'bg-success' : 'bg-primary'" :padding-x="4" small class="flex items-center h-9 mr-2" @click="toggleOfflineBook">
+              <span class="material-symbols text-2xl -ml-2 pr-2 text-white" aria-hidden="true">{{ offlineBookCached ? 'offline_pin' : 'download_for_offline' }}</span>
+              {{ offlineBookSaving ? 'Saving…' : offlineBookCached ? 'Remove offline' : 'Save offline' }}
             </ui-btn>
 
             <ui-tooltip v-if="showQueueBtn" :text="isQueued ? $strings.ButtonQueueRemoveItem : $strings.ButtonQueueAddItem" direction="top">
@@ -182,7 +187,9 @@ export default {
       episodeDownloadsQueued: [],
       showBookmarksModal: false,
       isDescriptionClamped: false,
-      showFullDescription: false
+      showFullDescription: false,
+      offlineBookCached: false,
+      offlineBookSaving: false
     }
   },
   computed: {
@@ -305,6 +312,11 @@ export default {
     },
     ebookFile() {
       return this.media.ebookFile
+    },
+    canSaveEpubOffline() {
+      if (!this.ebookFile) return false
+      const format = this.ebookFile.ebookFormat || this.ebookFile.metadata?.ext?.replace(/^\./, '')
+      return format?.toLowerCase() === 'epub'
     },
     description() {
       return this.mediaMetadata.description || ''
@@ -499,6 +511,61 @@ export default {
     },
     openEbook() {
       this.$store.commit('showEReader', { libraryItem: this.libraryItem, keepProgress: true })
+    },
+    async refreshOfflineBookStatus() {
+      const userId = this.$store.state.user.user?.id
+      if (!userId || !this.canSaveEpubOffline) return
+      try {
+        this.offlineBookCached = !!(await this.$offlineBooks.getBook(this.libraryItemId, null, userId))
+      } catch (error) {
+        console.error('Failed to check offline book status', error)
+      }
+    },
+    async toggleOfflineBook() {
+      const user = this.$store.state.user.user
+      if (!user?.id || !this.canSaveEpubOffline || this.offlineBookSaving) return
+      this.offlineBookSaving = true
+      try {
+        if (this.offlineBookCached) {
+          await this.$offlineBooks.removeBook(this.libraryItemId, null, user.id)
+          this.offlineBookCached = false
+          this.$toast.success('Offline copy removed')
+          return
+        }
+
+        const ebookRequest = this.$axios.$get(`/api/items/${this.libraryItemId}/ebook`, { responseType: 'arraybuffer' })
+        const annotationsRequest = this.$axios
+          .$get(`/api/me/ebook-annotations/${this.libraryItemId}`)
+          .then((response) => response.annotations || [])
+          .catch((error) => {
+            console.error('Failed to include annotations in offline copy', error)
+            return []
+          })
+        const coverRequest = this.media.coverPath
+          ? this.$axios
+              .get(`/api/items/${this.libraryItemId}/cover`, { responseType: 'arraybuffer' })
+              .then((response) => ({ data: response.data, type: response.headers['content-type'] }))
+              .catch(() => null)
+          : Promise.resolve(null)
+        const [ebookData, annotations, cover] = await Promise.all([ebookRequest, annotationsRequest, coverRequest])
+
+        await this.$offlineBooks.cacheBook({
+          owner: user,
+          libraryItem: this.libraryItem,
+          ebookData,
+          coverData: cover?.data || null,
+          coverType: cover?.type || null,
+          annotations,
+          progress: this.userMediaProgress || null
+        })
+        this.offlineBookCached = true
+        this.$toast.success('Book saved for offline reading')
+      } catch (error) {
+        console.error('Failed to save offline book', error)
+        this.$toast.error(error.message || 'Failed to save book offline')
+      } finally {
+        this.offlineBookSaving = false
+      }
     },
     toggleFinished(confirmed = false) {
       if (!this.userIsFinished && this.progressPercent > 0 && !confirmed) {
@@ -781,6 +848,7 @@ export default {
   },
   mounted() {
     this.checkDescriptionClamped()
+    this.refreshOfflineBookStatus()
 
     this.episodeDownloadsQueued = this.libraryItem.episodeDownloadsQueued || []
     this.episodesDownloading = this.libraryItem.episodesDownloading || []

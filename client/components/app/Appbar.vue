@@ -24,6 +24,10 @@
 
         <widgets-notification-widget class="hidden md:block" />
 
+        <nuxt-link to="/offline/" class="hover:text-gray-200 cursor-pointer w-8 h-8 flex items-center justify-center mx-1" aria-label="Offline books" title="Offline books">
+          <span class="material-symbols text-2xl">offline_pin</span>
+        </nuxt-link>
+
         <nuxt-link v-if="currentLibrary" to="/config/stats" class="hover:text-gray-200 cursor-pointer w-8 h-8 hidden sm:flex items-center justify-center mx-1">
           <ui-tooltip :text="$strings.HeaderYourStats" direction="bottom" class="flex items-center">
             <span class="material-symbols text-2xl" aria-label="User Stats" role="button">&#xe01d;</span>

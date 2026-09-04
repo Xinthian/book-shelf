@@ -5,6 +5,7 @@
 /metadata/
 /client/.nuxt/
 /client/dist/
+/client/static/sw.*
 /dist/
 *.log
 .DS_Store

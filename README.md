@@ -29,6 +29,7 @@ Book Shelf is an EPUB-focused fork of [Audiobookshelf](https://github.com/advply
 | Synced highlights in four colours | Clean shelves with portrait covers |
 | Notes and bookmarks stored on the server | Continue-reading and series shelves |
 | Reliable highlight positions across devices | Author, collection, and statistics views |
+| Opt-in offline EPUB reading | Per-user, on-device offline shelf |
 | Touch-friendly text selection workflow | Responsive desktop, tablet, and mobile layouts |
 | Fast Sans, Fast Serif, and Fast Mono | `Book Shelf` branding and an EPUB-first sidebar |
 | Reader-only AMOLED, dark, sepia, and light themes | Persistent data in simple bind-mounted folders |
@@ -54,6 +55,14 @@ The responsive web app runs anywhere a modern browser does: Android and iOS/iPad
   &nbsp;
   <img src="screenshots/mobile-amoled-reader-highlight.jpg" alt="Mobile AMOLED reader with a saved highlight" width="23%">
 </p>
+
+## Offline reading
+
+Open an EPUB's details and select **Save offline**. The EPUB, its cover, current reading position, highlights, notes, and bookmarks are stored locally in that browser profile. Use the offline-pin button in the top bar to open the device's offline shelf.
+
+While disconnected, reader changes are queued on the device. They are sent to the server after connectivity returns and the authenticated library is opened. Progress uses latest-update-wins conflict handling; annotations are replayed in order. A cached book with unsynced changes cannot be removed until those changes have synchronized.
+
+Cold-start offline access depends on the PWA service worker, so serve Book Shelf over HTTPS (except for `localhost`) and open the offline shelf once while connected. Browser storage is device-local and may be cleared by the user or operating system; it is not a substitute for backing up the server's `config/` directory.
 
 ## Library views
 

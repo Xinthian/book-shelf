@@ -3,6 +3,7 @@ const pkg = require('./package.json')
 const routerBasePath = process.env.ROUTER_BASE_PATH ?? '/audiobookshelf'
 const serverHostUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3333'
 const serverPaths = ['api/', 'public/', 'hls/', 'auth/', 'feed/', 'status', 'login', 'logout', 'init']
+const serverPathPattern = serverPaths.map((path) => path.replace(/\/$/, '')).join('|')
 const proxy = Object.fromEntries(serverPaths.map((path) => [`${routerBasePath}/${path}`, { target: process.env.NODE_ENV !== 'production' ? serverHostUrl : '/' }]))
 
 module.exports = {
@@ -43,7 +44,7 @@ module.exports = {
   css: ['@/assets/tailwind.css', '@/assets/app.css'],
 
   // Plugins to run before rendering page: https://go.nuxtjs.dev/config-plugins
-  plugins: ['@/plugins/constants.js', '@/plugins/init.client.js', '@/plugins/axios.js', '@/plugins/toast.js', '@/plugins/utils.js', '@/plugins/i18n.js'],
+  plugins: ['@/plugins/constants.js', '@/plugins/init.client.js', '@/plugins/axios.js', '@/plugins/offline-ebooks.client.js', '@/plugins/toast.js', '@/plugins/utils.js', '@/plugins/i18n.js'],
 
   // Auto import components: https://go.nuxtjs.dev/config-components
   components: true,
@@ -105,9 +106,15 @@ module.exports = {
       ]
     },
     workbox: {
-      offline: false,
-      cacheAssets: false,
-      preCaching: [],
+      // Authenticated API responses and ebook files are deliberately excluded.
+      // The app shell is handled by Workbox; opted-in EPUB files live in the
+      // per-user IndexedDB store managed by offlineEbookStore.js.
+      offline: true,
+      offlineStrategy: 'NetworkFirst',
+      pagesURLPattern: `${routerBasePath}/(?!(?:${serverPathPattern})(?:/|$)|socket\\.io/)`,
+      cacheAssets: true,
+      cleanupOutdatedCaches: true,
+      preCaching: [routerBasePath + '/offline/', routerBasePath + '/fonts/fast/Fast_Sans.woff2', routerBasePath + '/fonts/fast/Fast_Serif.woff2', routerBasePath + '/fonts/fast/Fast_Mono.woff2'],
       runtimeCaching: []
     }
   },

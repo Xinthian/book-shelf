@@ -108,7 +108,9 @@ export default {
       },
       selectionCaptureTimeouts: [],
       selectionPollInterval: null,
-      selectionLongPressTimeout: null
+      selectionLongPressTimeout: null,
+      offlineRecord: null,
+      usingOfflineBook: false
     }
   },
   watch: {
@@ -131,6 +133,7 @@ export default {
       return !this.rendition?.location?.atEnd
     },
     userMediaProgress() {
+      if (this.libraryItem?._offline) return this.offlineRecord?.progress || this.libraryItem._offline.progress
       if (!this.libraryItemId) return
       return this.$store.getters['user/getUserMediaProgress'](this.libraryItemId)
     },
@@ -142,7 +145,7 @@ export default {
       return this.userMediaProgress.ebookLocation
     },
     localStorageLocationsKey() {
-      return `ebookLocations-${this.libraryItemId}`
+      return `ebookLocations-${this.libraryItemId}-${this.fileId || 'primary'}`
     },
     readerWidth() {
       if (this.windowWidth < 640) return this.windowWidth
@@ -205,21 +208,53 @@ export default {
     }
   },
   methods: {
+    offlineOwnerId() {
+      return this.libraryItem?._offline?.ownerId || this.$store.state.user.user?.id || this.$offlineBooks.getActiveProfile()?.id
+    },
+    shouldWriteLocally() {
+      return !navigator.onLine || (!!this.libraryItem?._offline && !this.$store.state.user.user?.id)
+    },
+    canQueueFailedRequest(error) {
+      const status = error?.response?.status
+      return !status || status === 401 || status === 408 || status === 429 || status >= 500
+    },
+    async refreshOfflineRecord() {
+      this.offlineRecord = await this.$offlineBooks.getBook(this.libraryItemId, this.fileId, this.offlineOwnerId())
+      return this.offlineRecord
+    },
+    persistCachedAnnotations() {
+      if (!this.offlineRecord) return Promise.resolve()
+      return this.$offlineBooks.saveAnnotations(this.libraryItemId, this.fileId, this.annotations, this.offlineOwnerId()).catch((error) => {
+        console.error('Failed to update cached annotations', error)
+      })
+    },
     annotationMatchesThisBook(annotation) {
       return annotation.libraryItemId === this.libraryItemId && (annotation.fileId || null) === (this.fileId || null)
     },
     async loadAnnotations() {
       if (!this.libraryItemId) return
       this.annotationsLoading = true
+      if (this.shouldWriteLocally() && this.offlineRecord) {
+        this.annotations = this.offlineRecord.annotations || []
+        this.renderAnnotations()
+        this.annotationsLoading = false
+        return
+      }
       try {
         const response = await this.$axios.$get(`/api/me/ebook-annotations/${this.libraryItemId}`, {
           params: this.fileId ? { fileId: this.fileId } : {}
         })
         this.annotations = response.annotations || []
         this.renderAnnotations()
+        await this.persistCachedAnnotations()
       } catch (error) {
         console.error('EpubReader.loadAnnotations failed:', error)
-        this.$toast.error('Failed to load annotations')
+        if (this.offlineRecord && this.canQueueFailedRequest(error)) {
+          this.annotations = this.offlineRecord.annotations || []
+          this.renderAnnotations()
+        } else {
+          this.$toast.error('Failed to load annotations')
+        }
       } finally {
         this.annotationsLoading = false
       }
@@ -434,6 +469,13 @@ export default {
       this.rendition?.getContents().forEach((contents) => contents.window.getSelection()?.removeAllRanges())
     },
     async createAnnotation(payload) {
+      if (this.shouldWriteLocally()) {
+        if (!this.offlineRecord) return this.$toast.error('Save this book offline before adding offline annotations')
+        const annotation = await this.$offlineBooks.createLocalAnnotation(this.libraryItemId, this.fileId, payload, this.offlineOwnerId())
+        this.annotations.push(annotation)
+        this.renderAnnotation(annotation)
+        return annotation
+      }
       try {
         const annotation = await this.$axios.$post(`/api/me/ebook-annotations/${this.libraryItemId}`, {
           ...payload,
@@ -443,9 +485,16 @@ export default {
           this.annotations.push(annotation)
           this.renderAnnotation(annotation)
         }
+        await this.persistCachedAnnotations()
         return annotation
       } catch (error) {
         console.error('EpubReader.createAnnotation failed:', error)
+        if (this.offlineRecord && this.canQueueFailedRequest(error)) {
+          const annotation = await this.$offlineBooks.createLocalAnnotation(this.libraryItemId, this.fileId, payload, this.offlineOwnerId())
+          this.annotations.push(annotation)
+          this.renderAnnotation(annotation)
+          return annotation
+        }
         this.$toast.error('Failed to save annotation')
       }
     },
@@ -477,28 +526,53 @@ export default {
       if (annotation) this.$toast.success('Page bookmarked')
     },
     async updateAnnotation(annotation) {
+      if (this.shouldWriteLocally()) {
+        await this.$offlineBooks.updateLocalAnnotation(this.libraryItemId, this.fileId, annotation, this.offlineOwnerId())
+        annotation._pending = true
+        return
+      }
       try {
         const updated = await this.$axios.$patch(`/api/me/ebook-annotations/${this.libraryItemId}/${annotation.id}`, {
           note: annotation.note || ''
         })
         Object.assign(annotation, updated)
+        await this.persistCachedAnnotations()
       } catch (error) {
         console.error('EpubReader.updateAnnotation failed:', error)
+        if (this.offlineRecord && this.canQueueFailedRequest(error)) {
+          await this.$offlineBooks.updateLocalAnnotation(this.libraryItemId, this.fileId, annotation, this.offlineOwnerId())
+          annotation._pending = true
+          return
+        }
         this.$toast.error('Failed to update annotation')
       }
     },
     async deleteAnnotation(annotation) {
+      if (this.shouldWriteLocally()) {
+        await this.$offlineBooks.deleteLocalAnnotation(this.libraryItemId, this.fileId, annotation, this.offlineOwnerId())
+        this.removeAnnotationFromReader(annotation)
+        return
+      }
       try {
         await this.$axios.$delete(`/api/me/ebook-annotations/${this.libraryItemId}/${annotation.id}`)
-        if (annotation.type !== 'bookmark') {
-          this.removeCustomHighlight(annotation)
-          this.rendition?.annotations.remove(annotation.cfi, 'highlight')
-        }
-        this.annotations = this.annotations.filter((item) => item.id !== annotation.id)
+        this.removeAnnotationFromReader(annotation)
+        await this.persistCachedAnnotations()
       } catch (error) {
         console.error('EpubReader.deleteAnnotation failed:', error)
+        if (this.offlineRecord && this.canQueueFailedRequest(error)) {
+          await this.$offlineBooks.deleteLocalAnnotation(this.libraryItemId, this.fileId, annotation, this.offlineOwnerId())
+          this.removeAnnotationFromReader(annotation)
+          return
+        }
         this.$toast.error('Failed to delete annotation')
       }
+    },
+    removeAnnotationFromReader(annotation) {
+      if (annotation.type !== 'bookmark') {
+        this.removeCustomHighlight(annotation)
+        this.rendition?.annotations.remove(annotation.cfi, 'highlight')
+      }
+      this.annotations = this.annotations.filter((item) => item.id !== annotation.id)
     },
     goToAnnotation(annotation) {
       this.rendition?.display(annotation.cfi)
@@ -509,9 +583,12 @@ export default {
       const existing = this.annotations.find((item) => item.id === annotation.id)
       if (existing) Object.assign(existing, annotation)
       else {
+        const pending = this.annotations.find((item) => item._pending && item.type === annotation.type && item.cfi === annotation.cfi && item.selectedText === annotation.selectedText)
+        if (pending) this.removeAnnotationFromReader(pending)
         this.annotations.push(annotation)
         this.renderAnnotation(annotation)
       }
+      this.persistCachedAnnotations()
     },
     annotationRemoved(payload) {
       if (payload.libraryItemId !== this.libraryItemId) return
@@ -522,6 +599,7 @@ export default {
         this.rendition?.annotations.remove(annotation.cfi, 'highlight')
       }
       this.annotations = this.annotations.filter((item) => item.id !== payload.id)
+      this.persistCachedAnnotations()
     },
     updateSettings(settings) {
       this.ereaderSettings = settings
@@ -594,10 +672,26 @@ export default {
      * @param {string} payload.ebookLocation - CFI of the current location
      * @param {string} payload.ebookProgress - eBook Progress Percentage
      */
-    updateProgress(payload) {
+    async updateProgress(payload) {
       if (!this.keepProgress) return
-      this.$axios.$patch(`/api/me/progress/${this.libraryItemId}`, payload, { progress: false }).catch((error) => {
+      const cacheOptions = { ownerId: this.offlineOwnerId(), queue: this.shouldWriteLocally() }
+      if (this.offlineRecord) {
+        try {
+          await this.$offlineBooks.saveProgress(this.libraryItemId, this.fileId, payload, cacheOptions)
+        } catch (error) {
+          console.error('Failed to save offline ebook progress', error)
+        }
+      }
+      if (this.shouldWriteLocally()) return
+      this.$axios.$patch(`/api/me/progress/${this.libraryItemId}`, payload, { progress: false }).catch(async (error) => {
         console.error('EpubReader.updateProgress failed:', error)
+        if (this.offlineRecord && this.canQueueFailedRequest(error)) {
+          try {
+            await this.$offlineBooks.saveProgress(this.libraryItemId, this.fileId, payload, { ownerId: this.offlineOwnerId(), queue: true })
+          } catch (cacheError) {
+            console.error('Failed to queue offline ebook progress', cacheError)
+          }
+        }
       })
     },
     getAllEbookLocationData() {
@@ -702,7 +796,7 @@ export default {
         })
       }
     },
-    initEpub() {
+    async initEpub() {
       /** @type {EpubReader} */
       const reader = this
 
@@ -718,13 +812,28 @@ export default {
         }
       }
 
-      /** @type {ePub.Book} */
-      reader.book = new ePub(reader.ebookUrl, {
+      try {
+        await this.refreshOfflineRecord()
+      } catch (error) {
+        console.error('Failed to check offline ebook storage', error)
+      }
+
+      if (this.libraryItem?._offline && !this.offlineRecord) {
+        this.$toast.error('This offline book is no longer available on this device')
+        return
+      }
+
+      const bookSource = this.offlineRecord?.ebookData || reader.ebookUrl
+      this.usingOfflineBook = !!this.offlineRecord
+      const bookOptions = {
         width: this.readerWidth,
         height: this.readerHeight - 50,
-        openAs: 'epub',
-        requestMethod: customRequest
-      })
+        openAs: 'epub'
+      }
+      if (!this.offlineRecord) bookOptions.requestMethod = customRequest
+
+      /** @type {ePub.Book} */
+      reader.book = new ePub(bookSource, bookOptions)
 
       /** @type {ePub.Rendition} */
       reader.rendition = reader.book.renderTo('viewer', {
@@ -915,6 +1024,7 @@ export default {
     window.addEventListener('resize', this.resize)
     this.$root.socket?.on('ebook_annotation_updated', this.annotationUpdated)
     this.$root.socket?.on('ebook_annotation_removed', this.annotationRemoved)
+    window.addEventListener('book-shelf-offline-synced', this.loadAnnotations)
     this.initEpub()
     this.selectionPollInterval = setInterval(this.pollForSelection, 300)
   },
@@ -925,6 +1035,7 @@ export default {
     clearTimeout(this.selectionLongPressTimeout)
     this.$root.socket?.off('ebook_annotation_updated', this.annotationUpdated)
     this.$root.socket?.off('ebook_annotation_removed', this.annotationRemoved)
+    window.removeEventListener('book-shelf-offline-synced', this.loadAnnotations)
     this.book?.destroy()
   }
 }
