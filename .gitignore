@@ -1,0 +1,10 @@
+.env
+**/node_modules/
+/books/
+/config/
+/metadata/
+/client/.nuxt/
+/client/dist/
+/dist/
+*.log
+.DS_Store
