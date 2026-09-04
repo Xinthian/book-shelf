@@ -1,10 +1,13 @@
 .git
 .gitignore
+.github
+README.md
 .env
 **/node_modules/
 /books/
 /config/
 /metadata/
+/screenshots/
 /client/.nuxt/
 /client/dist/
 /dist/
